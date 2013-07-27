@@ -19,7 +19,6 @@
 import os
 #import new
 import logging
-from .CLSID import CLSID
 
 log = logging.getLogger("Thug")
 
@@ -132,68 +131,3 @@ class _ActiveXObject:
             return self.__dict__[name]
 
         log.warning("Unknown ActiveX Object attribute: %s" % (name, ))
-
-
-def register_object(s, clsid):
-    funcattrs = dict()
-    methods   = dict()
-    obj       = None
-
-    if not clsid.startswith('clsid:'):
-        log.warning("Unknown ActiveX object: %s" % (clsid, ))
-        return None
-
-    clsid = clsid[6:].upper()
-    if clsid.startswith('{') and clsid.endswith('}'):
-        clsid = clsid[1:-1]
-
-    # Adobe Acrobat Reader
-    if clsid in acropdf and log.ThugVulnModules.acropdf_disabled:
-        log.warning("Unknown ActiveX Object: %s" % (clsid, ))
-        raise TypeError()
-
-    # Shockwave Flash
-    if clsid in shockwave and log.ThugVulnModules.shockwave_flash_disabled:
-        log.warning("Unknown ActiveX Object: %s" % (clsid, ))
-        raise TypeError()
-
-    # Java Deployment Toolkit
-    if clsid in java_deployment_toolkit and log.ThugVulnModules.javaplugin_disabled:
-        log.warning("Unknown ActiveX Object: %s" % (clsid, ))
-        raise TypeError()
-
-    # JavaPlugin
-    if clsid.lower().startswith('javaplugin') and log.ThugVulnModules.javaplugin_disabled:
-        log.warning("Unknown ActiveX Object: %s" % (clsid, ))
-        raise TypeError()
-
-    # JavaWebStart
-    if clsid.lower().startswith('javawebstart.isinstalled') and log.ThugVulnModules.javaplugin_disabled:
-        log.warning("Unknown ActiveX Object: %s" % (clsid, ))
-        raise TypeError()
-
-    for c in CLSID:
-        if clsid in c['id']:
-            obj = c
-            break
-
-    if obj is None:
-        log.warning("Unknown ActiveX object: %s" % (clsid, ))
-        #return None
-        raise TypeError()
-
-    for method_name, method in obj['methods'].items():
-        #_method = new.instancemethod(method, s, s.__class__)
-        _method = method.__get__(s, s.__class__)
-        setattr(s, method_name, _method)
-        methods[method] = _method
-
-    for attr_name, attr_value in obj['attrs'].items():
-        setattr(s, attr_name, attr_value)
-
-    # PLEASE REVIEW ME!
-    for attr_name, attr_value in obj['funcattrs'].items():
-        if 'funcattrs' not in s.__dict__:
-            s.__dict__['funcattrs'] = dict()
-
-        s.__dict__['funcattrs'][attr_name] = methods[attr_value]

@@ -6,7 +6,10 @@ class CSSStyleDeclaration(object):
         self.props = dict()
 
         for prop in [p for p in style.split(';') if p]:
-            k, v = prop.strip().split(':')
+            try:
+                k, v = prop.strip().split(':')
+            except ValueError:
+                continue
             self.props[k.strip()] = v.strip()
          
         for k, v in self.props.items():

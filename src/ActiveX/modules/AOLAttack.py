@@ -1,9 +1,0 @@
-
-import logging 
-log = logging.getLogger("Thug")
-
-def LinkSBIcons(self):
-    log.ThugLogging.log_exploit_event(self._window.url,
-                                      "AOL ActiveX",
-                                      "Attack in LinkSBIcons function",
-                                      cve = "CVE-2006-5820")

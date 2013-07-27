@@ -33,14 +33,14 @@ class MimeTypes(dict):
                                                                       'description' : 'Adobe Acrobat Plug-In'}),
                                             'enabled'       : True})  
 
-        self['application/x-shockwave-flash'] = MimeType({  
+        """self['application/x-shockwave-flash'] = MimeType({  
                                             'description'   : 'Shockwave Flash',
                                             'suffixes'      : 'swf',
                                             'type'          : 'application/x-shockwave-flash',
                                             'enabledPlugin' : Plugin({'name'        : 'Shockwave Flash %s' % (log.ThugVulnModules.shockwave_flash, ),
                                                                       'version'     : '%s' % (log.ThugVulnModules.shockwave_flash, ),
                                                                       'description' : 'Shockwave Flash %s' % (log.ThugVulnModules.shockwave_flash, ),}),
-                                            'enabled'       : True})
+                                            'enabled'       : True})"""
 
         if not log.ThugOpts.Personality.isIE():
             if not log.ThugVulnModules.javaplugin_disabled:
@@ -68,7 +68,8 @@ class MimeTypes(dict):
             key = int(key)
             return self.item(key)
         except:
-            return dict.__getitem__(self, key) if key in self else MimeType()
+            #return dict.__getitem__(self, key) if key in self else MimeType()
+            return dict.__getitem__(self, key) if key in self else None
 
     @property
     def length(self):
@@ -81,4 +82,5 @@ class MimeTypes(dict):
         return list(self.values())[index]
 
     def namedItem(self, name):
-        return dict.__getitem__(self, key) if key in self else MimeType()
+        #return dict.__getitem__(self, name) if name in self else MimeType()
+        return dict.__getitem__(self, name) if name in self else None

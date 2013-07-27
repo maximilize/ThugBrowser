@@ -63,7 +63,6 @@ class Location(PyV8.JSClass):
                 break
 
         url = self._window.navigator._normalize_url(url)
-        log.ThugLogging.log_href_redirect(referer, url)
 
         doc    = w3c.parseString('')
         window = Window.Window(referer, doc, personality = p)

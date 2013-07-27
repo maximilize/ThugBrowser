@@ -37,7 +37,11 @@ class Plugin(dict):
         return super(Plugin, self).__setitem__(key, value)
 
     def __getitem__(self, name):
-        return super(Plugin, self).__getitem__(name)
+        try:
+            return super(Plugin, self).__getitem__(name)
+        except KeyError:
+            print "KeyError:", name, "->", self
+            return ""
 
     def __delitem__(self, name):
         return super(Plugin, self).__delitem__(name)

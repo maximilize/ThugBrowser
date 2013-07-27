@@ -17,15 +17,8 @@
 # MA  02111-1307  USA
 
 import os
-import pylibemu
-import struct
-import hashlib
-import string
 import logging
 import PyV8
-import chardet
-import traceback
-import bs4 as BeautifulSoup
 import jsbeautifier
 from cssutils.parse import CSSParser
 
@@ -39,18 +32,8 @@ from .W3C.DOMImplementation import DOMImplementation
 from .W3C.Events.Event import Event
 from .W3C.Events.MouseEvent import MouseEvent
 from .W3C.Events.HTMLEvent import HTMLEvent
-from .compatibility import *
-from ActiveX.ActiveX import _ActiveXObject
 
 log        = logging.getLogger("Thug")
-vbs_parser = True
-    
-try:
-    #from vb2py.vbparser import convertVBtoPython, VBCodeModule
-    import pyjs
-except ImportError:
-    vbs_parser = False
-    pass
     
 class DFT(object):
     javascript     = ('javascript', )
@@ -125,167 +108,6 @@ class DFT(object):
 
         return self._context
 
-    def build_shellcode(self, s):
-        i  = 0
-        sc = list()
-
-        while i < len(s):
-            if s[i] == '"':
-                i += 1
-                continue
-
-            if s[i] == '%':
-                if (i + 6) <= len(s) and s[i + 1] == 'u':
-                    currchar = int(s[i + 2: i + 4], 16)
-                    nextchar = int(s[i + 4: i + 6], 16)
-                    sc.append(chr(nextchar))
-                    sc.append(chr(currchar))
-                    i += 6
-                elif (i + 3) <= len(s) and s[i + 1] == 'u':
-                    currchar = int(s[i + 2: i + 4], 16)
-                    sc.append(chr(currchar))
-                    i += 3
-                else:
-                    sc.append(s[i])
-                    i += 1
-            else:
-                sc.append(s[i])
-                i += 1
-
-        return ''.join(sc)
-
-    def check_URLDownloadToFile(self, emu):
-        profile = emu.emu_profile_output
-
-        while True:
-            offset = profile.find('URLDownloadToFile')
-            if offset < 0:
-                break
-
-            profile = profile[offset:]
-
-            p = profile.split(';')
-            if len(p) < 2:
-                profile = profile[1:]
-                continue
-            
-            p = p[1].split('"')
-            if len(p) < 3:
-                profile = profile[1:]
-                continue
-
-            url = p[1]
-            if url in log.ThugLogging.shellcode_urls:
-                return
-
-            try:
-                self.window._navigator.fetch(url, redirect_type = "URLDownloadToFile")
-                log.ThugLogging.shellcode_urls.add(url)
-            except:
-                pass
-
-            profile = profile[1:]
-
-    def check_WinExec(self, emu):
-        profile = emu.emu_profile_output
-
-        while True:
-            offset = profile.find('WinExec')
-            if offset < 0:
-                break
-
-            profile = profile[offset:]
-
-            p = profile.split(';')
-            if not p:
-                profile = profile[1:]
-                continue
-
-            s = p[0].split('"')
-            if len(s) < 2:
-                profile = profile[1:]
-                continue
-
-            url = s[1]
-            if not url.startswith("http"):
-                profile = profile[1:]
-                continue
-
-            if url in log.ThugLogging.shellcode_urls:
-                return
-
-            try:
-                self.window._navigator.fetch(url, redirect_type = "WinExec")
-                log.ThugLogging.shellcode_urls.add(url)
-            except:
-                pass
-
-            profile = profile[1:]
-
-    def check_shellcode(self, shellcode):
-        try:
-            sc = self.build_shellcode(shellcode)
-        except:
-            sc = shellcode
-
-        emu = pylibemu.Emulator(enable_hooks = False)
-        emu.run(sc)
-        
-        if emu.emu_profile_output:
-            log.ThugLogging.add_code_snippet(emu.emu_profile_output, 'Assembly', 'Shellcode', method = 'Static Analysis')
-            log.warning("[Shellcode Profile]\n\n%s" % (emu.emu_profile_output, ))
-            self.check_URLDownloadToFile(emu)
-            self.check_WinExec(emu)
-
-        self.check_url(sc, shellcode)
-        emu.free()
-
-    def check_url(self, sc, shellcode):
-        for scheme in ('http://', 'https://'):
-            offset = sc.find(scheme)
-            if offset == -1:
-                continue
-
-            url = sc[offset:]
-            url = url.split()[0]
-            if url.endswith("'") or url.endswith('"'):
-                url = url[:-1]
-            
-            if len(url) == 0:
-                continue
-
-            i = 0
-
-            while i < len(url):
-                if not url[i] in string.printable:
-                    break
-                i += 1
-
-            log.ThugLogging.add_code_snippet(shellcode, 'Assembly', 'Shellcode', method = 'Static Analysis')
-            log.ThugLogging.add_behavior_warn(description = '[Shellcode Analysis] URL Detected: %s' % (url[:i], ), method = 'Static Analysis')
-
-            url = url[:i]
-            if url in log.ThugLogging.shellcode_urls:
-                return
-
-            try:
-                self.window._navigator.fetch(url, redirect_type = "URL found")
-                log.ThugLogging.shellcode_urls.add(url)
-            except:
-                pass
-
-    def check_shellcodes(self):
-        while True:
-            try:
-                shellcode = log.ThugLogging.shellcodes.pop()
-                self.check_shellcode(shellcode)
-            except KeyError:
-                break
-
-    def check_attrs(self, p):
-        for attr, value in p.attrs.items():
-            self.check_shellcode(value)
-        
     def shift(self, script, s):
         if script.lower().startswith(s):
             return script[len(s):].lstrip()
@@ -398,7 +220,7 @@ class DFT(object):
     def attach_event(self, elem, evt, h):
         handler = None
 
-        if isinstance(h, thug_string):
+        if isinstance(h, basestring):
             handler = self.build_event_handler(self.context, h)
             PyV8.JSEngine.collect()
         elif isinstance(h, PyV8.JSFunction):
@@ -443,49 +265,6 @@ class DFT(object):
         version =  '%s_%s' % ('.'.join(javaplugin), last)
         return log.ThugOpts.Personality.javaUserAgent % (version, )
 
-    @property
-    def javaWebStartUserAgent(self):
-        javaplugin = log.ThugVulnModules._javaplugin.split('.')
-        last = javaplugin.pop()
-        version =  '%s_%s' % ('.'.join(javaplugin), last)
-        return "JNLP/6.0 javaws/%s (b04) Java/%s" % (version, version, )
-
-    def _check_jnlp_param(self, param):
-        name  = param.attrs['name']
-        value = param.attrs['value']
-
-        if name in ('__applet_ssv_validated', ) and value.lower() in ('true', ):
-            log.ThugLogging.log_exploit_event(self.window.url,
-                                              'Java WebStart',
-                                              'Java Security Warning Bypass (CVE-2013-2423)',
-                                              cve = 'CVE-2013-2423')
-
-    def _handle_jnlp(self, data, headers):
-        try:
-            soup = BeautifulSoup.BeautifulSoup(data)
-        except:
-            return
-
-        if soup.find("jnlp") is None:
-            return
-
-        log.ThugLogging.add_behavior_warn(description = '[JNLP Detected]', method = 'Dynamic Analysis')
-
-        for param in soup.find_all('param'):
-            log.ThugLogging.add_behavior_warn(description = '[JNLP] %s' % (param, ), method = 'Dynamic Analysis')
-            self._check_jnlp_param(param)
-
-        jar = soup.find("jar")
-        if jar is None:
-            return
-
-        try:
-            url = jar.attrs['href']
-            headers['User-Agent'] = self.javaWebStartUserAgent
-            response, content = self.window._navigator.fetch(url, headers = headers, redirect_type = "JNLP")
-        except:
-            pass
-
     def do_handle_params(self, object):
         params = dict()
 
@@ -527,19 +306,6 @@ class DFT(object):
             except:
                 pass
 
-        for key, value in params.items():
-            if key in ('filename', 'movie', 'archive', 'code', ):
-                continue
-
-            if key.lower() not in ('jnlp_href', ) and not value.startswith('http'):
-                continue
-
-            try:
-                response, content = self.window._navigator.fetch(value, headers = headers, redirect_type = "params")
-                self._handle_jnlp(content, headers)
-            except:
-                pass
-
         if not 'archive' in params and not 'code' in params:
             return
 
@@ -562,45 +328,6 @@ class DFT(object):
         #    self.window._navigator.fetch(code, headers = headers)
         #except:
         #    pass
-
-    def handle_object(self, object):
-        log.warning(object)
-
-        #self.check_attrs(object)
-        self.do_handle_params(object)
-
-        classid  = object.get('classid', None)
-        id       = object.get('id', None)
-        codebase = object.get('codebase', None)
-        data     = object.get('data', None)
-
-        if codebase:
-            try:
-                self.window._navigator.fetch(codebase, redirect_type = "object codebase")
-            except:
-                pass
-
-        if data:
-            try:
-                self.window._navigator.fetch(data, redirect_type = "object data")
-            except:
-                pass
-
-        if not log.ThugOpts.Personality.isIE():
-            return
-
-        #if classid and id:
-        if classid:
-            try:
-                axo = _ActiveXObject(self.window, classid, 'id')
-            except TypeError:
-                return
-
-            if id is None:
-                return
-
-            setattr(self.window, id, axo)
-            setattr(self.window.doc, id, axo)
 
     def _get_script_for_event_params(self, attr_event):
         params = attr_event.split('(')
@@ -646,50 +373,6 @@ class DFT(object):
             self._handle_script_for_event(script)
 
         handler(script)
-            
-    def handle_external_javascript(self, script):
-        src = script.get('src', None)
-        if src is None:
-            return
-
-        relationship = 'External'
-
-        try:
-            response, js = self.window._navigator.fetch(src, redirect_type = "script src")
-        except:
-            return
-
-        if response.status == 404:
-            return
-
-        if len(js):
-            log.ThugLogging.add_code_snippet(js, 'Javascript', 'External')
-            s = self.window.doc.createElement('script')
-
-            for attr in script.attrs:
-                if attr.lower() in ('src', ):
-                    continue
-
-                s.setAttribute(attr, script.get(attr))
-
-            try:
-                s.text = js
-            except UnicodeDecodeError:
-                enc = chardet.detect(js)
-                if enc['encoding'] is None:
-                    return
-
-                s.text = js.decode(enc['encoding'])
-
-            try:
-                body = self.window.doc.body
-            except:
-                body = self.window.doc.getElementsByTagName('body')[0]
-
-            if body:
-                body.appendChild(s)
-
-            self.window.evalScript(js, tag = script)
 
     def handle_javascript(self, script):
         try:
@@ -697,49 +380,23 @@ class DFT(object):
         except:
             log.info(script)
 
-        self.handle_external_javascript(script)
+        src = script.get('src', None)
+        if src is not None:
+            try:
+                response, js = self.window._navigator.fetch(src, redirect_type = "script src")
+            except:
+                return
 
-        js = getattr(script, 'text', None)
+            if response.status == 404:
+                return
+        else:
+            js = getattr(script, 'text', None)
 
         if js:
-            log.ThugLogging.add_code_snippet(js, 'Javascript', 'Contained_Inside')
-            self.window.evalScript(js, tag = script)
-
-        self.check_shellcodes()
-        self.check_anchors()
-
-    def handle_vbscript(self, script):
-        log.info(script)
-        log.ThugLogging.add_code_snippet(str(script), 'VBScript', 'Contained_Inside')
-
-        if not vbs_parser:
-            log.warning("VBScript parsing not enabled (vb2py is needed)")
-            return
-
-        vbs_py = convertVBtoPython(script.string, container = VBCodeModule())
-        log.warning(vbs_py)
-
-        #pyjs_js = os.path.join(os.path.dirname(__file__), 'py.js')
-        #self.window.evalScript(open(pyjs_js, 'r').read())
-
-        #vbs_js = pyjs.compile(vbs_py)
-        #print vbs_js
-        #self.window.evalScript(vbs_js)
-
-    def handle_vbs(self, script):
-        self.handle_vbscript(script)
-
-    def handle_visualbasic(self, script):
-        self.handle_vbscript(script)
+            self.window.evalScript(js, tag=script)
 
     def handle_noscript(self, script):
         pass
-
-    def handle_param(self, param):
-        log.info(param)
-
-        name  = param.get('name' , None)
-        value = param.get('value', None)
 
     def handle_embed(self, embed):
         log.warning(embed)
@@ -759,35 +416,13 @@ class DFT(object):
         except:
             pass
 
-    def handle_applet(self, applet):
-        log.warning(applet)
-
-        self.do_handle_params(applet)
-
-        archive = applet.get('archive', None)
-        if not archive:
-            return
-
-        headers = dict()
-        headers['Connection']   = 'keep-alive'
-        headers['Content-type'] = 'application/x-java-archive'
-
-        if log.ThugOpts.Personality.javaUserAgent:
-            headers['User-Agent'] = self.javaUserAgent
-
-        try:
-            response, content = self.window._navigator.fetch(archive, headers = headers, redirect_type = "applet")
-        except:
-            pass
-
     def handle_meta(self, meta):
+        return
         log.info(meta)
 
         name = meta.get('name', None)
         if name and name.lower() in ('generator', ):
             content = meta.get('content', None)
-            if content:
-                log.ThugLogging.add_behavior_warn("[Meta] Generator: %s" % (content, ))
 
         http_equiv = meta.get('http-equiv', None)
         if not http_equiv or http_equiv.lower() != 'refresh':
@@ -844,6 +479,7 @@ class DFT(object):
         dft.run()
 
     def handle_frame(self, frame, redirect_type = 'frame'):
+        return
         log.warning(frame)
         
         src = frame.get('src', None)
@@ -871,15 +507,8 @@ class DFT(object):
         window = Window.Window(self.window.url, doc, personality = log.ThugOpts.useragent)
         window.open(src)
 
-        frame_id = frame.get('id', None)
-        if frame_id:
-            log.ThugLogging.windows[frame_id] = window
-
         dft = DFT(window)
         dft.run()
-
-    def handle_iframe(self, iframe):
-        self.handle_frame(iframe, 'iframe')
 
     def handle_body(self, body):
         pass
@@ -899,6 +528,7 @@ class DFT(object):
                 return
 
     def handle_style(self, style):
+        return
         log.info(style)
 
         cssparser = CSSParser(loglevel = logging.CRITICAL, validate = False)
@@ -912,61 +542,6 @@ class DFT(object):
             if rule.type == rule.FONT_FACE_RULE:
                 self.do_handle_font_face_rule(rule)
 
-    def handle_a(self, anchor):
-        log.info(anchor)
-
-        if log.ThugOpts.extensive:
-            log.warning(anchor)
-
-            href = anchor.get('href', None)
-            if not href:
-                return
-
-            try:
-                response, content = self.window._navigator.fetch(href, redirect_type = "anchor")
-            except:
-                return
-
-            if response.status == 404:
-                return
-
-        self.anchors.append(anchor)
-
-    def handle_link(self, link):
-        log.info(link)
-
-        href = link.get('href', None)
-        if not href:
-            return
-
-        try:
-            response, content = self.window._navigator.fetch(href, redirect_type = "link")
-        except:
-            return
-
-        if response.status == 404:
-            return
-
-    def check_anchors(self):
-        clicked_anchors = [a for a in self.anchors if '_clicked' in a.attrs]
-        if not clicked_anchors:
-            return
-
-        clicked_anchors.sort(key = lambda anchor: anchor['_clicked'])
-        
-        for anchor in clicked_anchors:
-            href = anchor['href']
-            del anchor['_clicked']
-            
-            if 'target' in anchor.attrs and not anchor.attrs['target'] in ('_self', ):
-                pid = os.fork()
-                if pid == 0:
-                    self.follow_href(href)
-                else:
-                    os.waitpid(pid, 0)
-            else:
-                self.follow_href(href)
-
     def follow_href(self, href):
         doc    = w3c.parseString('')
         window = Window.Window(self.window.url, doc, personality = log.ThugOpts.useragent)
@@ -976,7 +551,7 @@ class DFT(object):
             dft = DFT(window)
             dft.run()
 
-    def do_handle(self, child, skip = True):
+    def do_handle(self, child, skip=True):
         name = getattr(child, "name", None)
 
         if name is None:
@@ -1000,37 +575,19 @@ class DFT(object):
     
         _soup = soup
 
-        # Dirty hack
-        for p in soup.find_all('object'):
-            self.handle_object(p)
-
-        for p in soup.find_all('applet'):
-            self.handle_applet(p)
-
         for child in soup.descendants:
             self.set_event_handler_attributes(child)
             if not self.do_handle(child):
                 continue
 
-            analyzed = set()
-            recur    = True
-
-            while recur:
-                recur = False
-                
-                if tuple(soup.descendants) == tuple(_soup.descendants):
-                    break
-                
-                for _child in set(soup.descendants) - set(_soup.descendants): 
-                    if _child not in analyzed:
-                        analyzed.add(_child)
-                        recur = True
-
-                        name  = getattr(_child, "name", None)
-                        if name:
-                            self.do_handle(_child, False)
+            if tuple(soup.descendants) == tuple(_soup.descendants):
+                continue
             
-            analyzed.clear()
+            for _child in set(soup.descendants) - set(_soup.descendants): 
+                name = getattr(_child, "name", None)
+                if name:
+                    self.do_handle(_child, False)
+            
             _soup = soup
 
         for child in soup.descendants:
@@ -1055,6 +612,5 @@ class DFT(object):
                 log.warning("[handle_element_event] Event %s not properly handled" % (evt, ))
 
     def run(self):
-        with self.context as ctx:
+        with self.context:
             self._run()
-            self.check_shellcodes()

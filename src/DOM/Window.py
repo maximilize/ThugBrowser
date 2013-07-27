@@ -20,10 +20,9 @@ import os
 import sched
 import time
 import logging
+import chardet
 import PyV8
 import traceback
-import hashlib
-import pefile
 import numbers
 import datetime
 import collections
@@ -45,10 +44,7 @@ from .Console import Console
 from .Components import Components
 from .Crypto import Crypto
 from .CCInterpreter import CCInterpreter
-from .compatibility import *
 from ActiveX.ActiveX import _ActiveXObject
-from AST.AST import AST
-from Debugger import Shellcode, Global
 from Java.java import java
 
 sched = sched.scheduler(time.time, time.sleep)
@@ -56,7 +52,6 @@ log = logging.getLogger("Thug")
 
 
 class Window(PyV8.JSClass):
-
     class Timer(object):
         def __init__(self, window, code, delay, repeat, lang = 'JavaScript'):
             self.window  = window
@@ -85,7 +80,7 @@ class Window(PyV8.JSClass):
             log.debug(str(self.code))
 
             with self.window.context as ctx:
-                if isinstance(self.code, thug_string):
+                if isinstance(self.code, basestring):
                     return ctx.eval(self.code)
                 elif isinstance(self.code, PyV8.JSFunction):
                     return self.code()
@@ -119,6 +114,7 @@ class Window(PyV8.JSClass):
         self._opener = opener
         self._screen = screen or Screen(width, height, 32)
         self._closed = False
+        self._context = None
         
         self._personality = personality
         self.__init_personality()
@@ -171,7 +167,7 @@ class Window(PyV8.JSClass):
             self.context.locals[name] = _method
             return _method
 
-        if isinstance(symbol, (thug_string,
+        if isinstance(symbol, (basestring,
                                bool,
                                numbers.Number,
                                datetime.datetime,
@@ -675,57 +671,6 @@ class Window(PyV8.JSClass):
         """
         pass
 
-    # Windows Script Host Run method documentation at
-    # http://msdn.microsoft.com/en-us/library/d5fk67ky(v=vs.85).aspx
-    def _Run(self, strCommand, intWindowStyle = 0, bWaitOnReturn = False):
-        log.warning("[Windows Script Host Run] Command: \n%s\n", strCommand)
-        if not 'http' in strCommand:
-            return
-
-        self._doRun(strCommand, 1)
-
-    def _doRun(self, p, stage):
-        if not isinstance(p, str):
-            return
-
-        try:
-            pe = pefile.PE(data = p, fast_load = True)
-            return
-        except:
-            pass
-
-        log.ThugLogging.add_code_snippet(p, 'VBScript', 'Contained_Inside')
-        log.warning("[Windows Script Host Run - Stage %d] Code:\n%s" % (stage, p, ))
-
-        while True:
-            try:
-                index = p.index('"http')
-            except ValueError:
-                break
-
-            p = p[index + 1:]
-            s = p.split('"')
-            if len(s) < 2:
-                break
-
-            url = s[0]
-            log.warning("[Windows Script Host Run - Stage %d] Downloading from URL %s" % (stage, url, ))
-
-            try:
-                response, content = self._navigator.fetch(url, redirect_type = "doRun")
-            except:
-                continue
-
-            if response.status == 404:
-                continue
-
-            md5 = hashlib.md5()
-            md5.update(content)
-            log.warning("[Windows Script Host Run - Stage %d] Saving file %s" % (stage, md5.hexdigest()))
-            p = '"'.join(s[1:])
-            
-            self._doRun(content, stage + 1)
-                
     def _attachEvent(self, sEvent, fpNotify):
         log.debug("[attachEvent] %s %s" % (sEvent, fpNotify, ))
         setattr(self, sEvent.lower(), fpNotify)
@@ -781,7 +726,6 @@ class Window(PyV8.JSClass):
 
     def __init_personality_IE(self):
         self.ActiveXObject     = self._do_ActiveXObject
-        self.Run               = self._Run
         self.CollectGarbage    = self._CollectGarbage
         self.navigate          = self._navigate
         self.clientInformation = self.navigator
@@ -842,35 +786,26 @@ class Window(PyV8.JSClass):
         if len(script) > 64: 
             log.warning("[Window] Eval argument length > 64 (%d)" % (len(script), ))
 
-        if len(script) > 4:
-            log.ThugLogging.add_code_snippet(script, 'Javascript', 'Dynamically_Evaluated', True)
-
         return self.evalScript(script)
 
     @property
     def context(self):
-        if not hasattr(self, '_context'):
+        if self._context is None:
             self._context = PyV8.JSContext(self)
-            with self._context as ctxt:
-                thug_js = os.path.join(os.path.dirname(os.path.abspath(__file__)), "thug.js")
-                ctxt.eval(open(thug_js, 'r').read())
+            #with self._context:
+            #with self._context as ctxt:
+                #thug_js = os.path.join(os.path.dirname(os.path.abspath(__file__)), "thug.js")
+                #print ctxt.eval(open(thug_js, 'r').read())
 
-                if log.ThugOpts.Personality.isIE() and log.ThugOpts.Personality.browserVersion < '8.0':
-                    sessionstorage_js = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessionStorage.js")
-                    ctxt.eval(open(sessionstorage_js, 'r').read())
+                #if log.ThugOpts.Personality.isIE() and log.ThugOpts.Personality.browserVersion < '8.0':
+                #    sessionstorage_js = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessionStorage.js")
+                #    ctxt.eval(open(sessionstorage_js, 'r').read())
 
-                PyV8.JSEngine.collect()
-
+                #PyV8.JSEngine.collect()
         return self._context
 
-    def evalScript(self, script, tag = None):
+    def evalScript(self, script, tag=None):
         result = 0
-
-        try:
-            log.JSClassifier.classify('[Local analysis]' if log.ThugOpts.local else self.url,
-                                      script)
-        except:
-            pass
 
         if tag:
             self.doc.current = tag
@@ -887,27 +822,28 @@ class Window(PyV8.JSClass):
                 self.doc.current = self.doc.doc.contents[-1]
 
         with self.context as ctxt:
-            try:
-                ast = AST(self, script)
-            except:
-                log.debug(traceback.format_exc())
-                return result
-
             if log.ThugOpts.Personality.isIE():
                 cc = CCInterpreter()
                 script = cc.run(script)
 
-            shellcode = Shellcode.Shellcode(self, ctxt, ast, script)
-            result    = shellcode.run()
+            try:
+                result = ctxt.eval(script)
+                print "!"*100, 'eval', len(script), result
+            except UnicodeDecodeError:
+                enc = chardet.detect(script)
+                result = ctxt.eval(script.decode(enc['encoding']))
+                print "!"*100, 'eval', len(script), result
+            except:
+                traceback.print_exc()
+                #print script
+            finally:
+                PyV8.JSEngine.collect()
 
         return result
 
     def unescape(self, s):
         i  = 0 
         sc = list()
-
-        if len(s) > 16:
-            log.ThugLogging.shellcodes.add(s)
 
         # %xx format
         if '%' in s and '%u' not in s:
@@ -949,13 +885,13 @@ class Window(PyV8.JSClass):
 
         index = 0
         tags  = self._findAll('script')
-        while index < len(self._findAll('script')):
-            tag = self._findAll('script')[index]
+        while index < len(tags):
+            tag = tags[index]
             if not tag.string:
                 src = tag.get('src', None)
                 if src:
                     try:
-                        response, js = self._navigator.fetch(src, redirect_type = "onload script")
+                        response, js = self._navigator.fetch(src, redirect_type="onload script")
                     except:
                         continue
 
@@ -964,7 +900,7 @@ class Window(PyV8.JSClass):
 
                     tag.setString(js)
             try:
-                self.evalScript(tag.string, tag = tag)
+                self.evalScript(tag.string, tag=tag)
             except:
                 log.debug(traceback.format_exc())
 
@@ -986,7 +922,7 @@ class Window(PyV8.JSClass):
     def getComputedStyle(self, element, pseudoelt = None):
         return getattr(element, 'style', None)
 
-    def open(self, url = None, name = '_blank', specs = '', replace = False):
+    def open(self, url=None, name='_blank', specs='', replace=False):
         if url:
             try:
                 response, html = self._navigator.fetch(url, redirect_type = "window open")
@@ -1030,159 +966,5 @@ class Window(PyV8.JSClass):
             else:
                 kwds['target'] = '_blank'
 
-        return Window(url, dom, navigator = None, personality = self._personality, 
-                        name = name, parent = self, opener = self, replace = replace, **kwds)
-
-
-import unittest
-
-TEST_URL = 'http://localhost:8080/path?query=key#frag'
-TEST_HTML = """
-<html>
-<head>
-    <title></title>
-</head>
-<body onload='load()'>
-    <frame src="#"/>
-    <iframe src="#"/>
-    <script>
-
-    function load()
-    {
-        window.innerWidth = 1;
-    }
-
-    document.write("<p id='hello'>world</p>");
-    </script>
-</body>
-</html>
-"""
-
-TEST_SETINTERVAL = """
-<html>
-<head>
-    <title></title>
-</head>
-<body>
-    <script>
-    var i = 0;
-    var intervalID = 0;
-
-    function f()
-    {
-        intervalID = setInterval("test();", 10);
-    }
-
-    function test()
-    {
-        i += 1;
-        if (i > 3) {
-            var timeoutStr = "<p id='hello'>" + i +"</p>";
-            document.write(timeoutStr);
-            clearInterval(intervalID);
-        }
-    }
-
-    f();
-    </script>
-</body>
-</html>
-"""
-
-TEST_SETTIMEOUT = """
-<html>
-<head>
-    <title></title>
-</head>
-<body>
-    <script>
-    var i = 0;
-    var timeoutID = 0;
-
-    function f()
-    {
-        timeoutID = setTimeout("test();", 100);
-    }
-
-    function test()
-    {
-        i += 1;
-        var timeoutStr = "<p id='hello'>" + i +"</p>";
-        document.write(timeoutStr);
-    }
-
-    f();
-    </script>
-</body>
-</html>
-"""
-
-
-class WindowTest(unittest.TestCase):
-    def setUp(self):
-        self.doc = w3c.parseString(TEST_HTML)
-        self.win = Window(TEST_URL, self.doc)
-
-    def testWindow(self):
-        self.assertEquals(self.doc, self.win.document)
-        self.assertEquals(self.win, self.win.window)
-        self.assertEquals(self.win, self.win.self)
-
-        self.assertFalse(self.win.closed)
-        self.win.close()
-        self.assert_(self.win.closed)
-
-        self.assertEquals(2, self.win.frames.length)
-        self.assertEquals(2, self.win.length)
-
-        self.assertEquals(1, self.win.history.length)
-
-        loc = self.win.location
-
-        self.assert_(loc)
-        self.assertEquals("frag", loc.hash)
-        self.assertEquals("localhost:8080", loc.host)
-        self.assertEquals("localhost", loc.hostname)
-        self.assertEquals(TEST_URL, loc.href)
-        self.assertEquals("/path", loc.pathname)
-        self.assertEquals(8080, loc.port)
-        self.assertEquals("http", loc.protocol)
-        self.assertEquals("query=key", loc.search)
-
-    def testOpen(self):
-        url = 'http://www.google.com'
-        win = self.win.open(url, specs="width=640, height=480")
-        self.assertEquals(url, win.url)
-
-        self.assert_(win.document)
-        self.assertEquals(url, win.document.URL)
-        self.assertEquals('www.google.com', win.document.domain)
-        self.assertEquals(640, win.innerWidth)
-        self.assertEquals(480, win.innerHeight)
-
-    def testScript(self):
-        self.win.fireOnloadEvents()
-
-        tag = self.doc.getElementById('hello')
-        self.assertEquals('P', tag.nodeName)
-        self.assertEquals(1, self.win.innerWidth)
-
-    def testSetInterval(self):
-        doc = w3c.parseString(TEST_SETINTERVAL)
-        win = Window(TEST_URL, doc)
-        
-        win.fireOnloadEvents()
-        tag = doc.getElementById('hello')
-        self.assertEquals(4, int(tag.firstChild.data))
-
-    def testSetTimeout(self):
-        doc = w3c.parseString(TEST_SETTIMEOUT)
-        win = Window(TEST_URL, doc)
-
-        win.fireOnloadEvents()
-        tag = doc.getElementById('hello')
-        self.assertEquals(1, int(tag.firstChild.data))
-
-
-if __name__ == '__main__':
-    unittest.main()
+        return Window(url, dom, navigator=None, personality=self._personality, 
+                        name=name, parent=self, opener=self, replace=replace, **kwds)

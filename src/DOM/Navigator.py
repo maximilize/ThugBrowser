@@ -18,12 +18,8 @@
 
 
 import PyV8
-import os
 import httplib2
-import hashlib
 import logging
-import socket
-import magic
 import datetime
 
 try:
@@ -341,9 +337,8 @@ class Navigator(PyV8.JSClass):
 
         return url
 
-    def fetch(self, url, method = "GET", headers = None, body = None, redirect_type = None):
-        #httplib2.debuglevel = 1
-
+    def fetch(self, url, method="GET", headers=None, body=None, redirect_type=None):
+        print "FETCH", url
         if log.ThugOpts.no_fetch:
             raise FetchForbidden
 
@@ -354,22 +349,12 @@ class Navigator(PyV8.JSClass):
         if url is None:
             return
 
-        if redirect_type:
-            log.ThugLogging.add_behavior_warn(("[%s redirection] %s -> %s" % (redirect_type, 
-                                                                              self._window.url, 
-                                                                              url, )))
-            log.ThugLogging.log_connection(self._window.url, url, redirect_type)
-        else:
-            log.ThugLogging.log_connection(self._window.url, url, "unknown")
-
         self.filecount += 1
 
         if log.ThugOpts.threshold and self.filecount >= log.ThugOpts.threshold:
-            log.ThugLogging.log_location(url, None, None, None, flags = {"error" : "Threshold Exceeded"})
             return
 
         if log.ThugOpts.timeout is not None and datetime.datetime.now() > log.ThugOpts.timeout:
-            log.ThugLogging.log_location(url, None, None, None, flags = {"error" : "Timeout"})
             return
 
         http_headers = self.__build_http_headers(headers)
@@ -387,65 +372,10 @@ class Navigator(PyV8.JSClass):
                                       redirections = 1024,
                                       headers = http_headers)
 
-        _url = log.ThugLogging.log_redirect(response)
-        if _url:
-            url = _url
-
-        log.URLClassifier.classify(url)
-        log.ThugLogging.add_behavior_warn("[HTTP] URL: %s (Status: %s, Referrer: %s)" % (url,
-                                                                                         response['status'],
-                                                                                         http_headers['Referer'] if 'Referer' in http_headers else 'None'))
-
         if response.status == 404:
-            log.ThugLogging.add_behavior_warn("[File Not Found] URL: %s" % (url, ))
-            log.ThugLogging.log_location(url, None, None, None, flags = {"error" : "File Not Found"})
             return response, content
 
         if response.status in (400, 408, 500, ):
-            log.ThugLogging.add_behavior_warn("[%s] URL: %s" % (response.reason, url, ))
             return response, ''
 
-        mime_base = log.ThugLogging.baseDir
-        if 'content-type' in response:
-            mime_base = os.path.join(mime_base, response['content-type'])
-
-        md5 = hashlib.md5()
-        md5.update(content)
-        filename = md5.hexdigest()
-
-        sha = hashlib.sha256()
-        sha.update(content)
-        sha256 = sha.hexdigest()
-
-        fsize = len(content)
-
-        try:
-            mtype = magic.from_buffer(content)
-        except:
-            # Ubuntu workaround
-            # There is an old pymagic version in Ubuntu
-            ms = magic.open(magic.MAGIC_NONE)
-            ms.load()
-            mtype = ms.buffer(content)
-
-        log.ThugLogging.add_behavior_warn("[HTTP] URL: %s (Content-type: %s, MD5: %s)" % (response['content-location'] if 'content-location' in response else url,
-                                                                                          response['content-type'] if 'content-type' in response else 'unknown',
-                                                                                          filename))
-        log.ThugLogging.log_location(url, response['content-type'] if 'content-type' in response else 'unknown', filename, sha256, fsize = fsize, mtype = mtype)
-
-
-        if response.previous and 'content-location' in response and response['content-location']:
-            if redirect_type not in ("URL found", "JNLP", ):
-                self._window.url = response['content-location']
-
-        try:
-            os.makedirs(mime_base)
-        except:
-            pass
-
-        with open(os.path.join(mime_base, filename), 'wb') as fd:
-            fd.write(content)
-
-        log.ThugLogging.log_file(content, url)
         return response, content
-

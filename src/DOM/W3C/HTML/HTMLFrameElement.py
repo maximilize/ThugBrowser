@@ -27,9 +27,6 @@ class HTMLFrameElement(HTMLElement):
 
     @property
     def contentWindow(self):
-        if self.id in log.ThugLogging.windows:
-            return log.ThugLogging.windows[self.id]
-
         if self.doc is None:
             return None
 

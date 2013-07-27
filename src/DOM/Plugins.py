@@ -47,11 +47,12 @@ class Plugins(list):
 
         while index < self.length:
             p = self.item(index)
-            if p['name'] == name:
+            if p['name'].startswith(name):
                 return p
 
             index += 1
 
+        print 'PLUGIN NOT FOUND:', name
         return Plugin()
 
     def refresh(self, reloadDocuments = False):

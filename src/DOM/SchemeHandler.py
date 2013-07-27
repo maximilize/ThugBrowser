@@ -21,8 +21,6 @@ class SchemeHandler:
         if not hcp:
             return 
 
-        log.ThugLogging.add_behavior_warn('Microsoft Windows Help Center Malformed Escape Sequences Incorrect Handling', 
-                                          'CVE-2010-1885')
         if not hcp[0]:
             return
 

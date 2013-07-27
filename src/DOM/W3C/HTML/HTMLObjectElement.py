@@ -70,15 +70,6 @@ class HTMLObjectElement(HTMLElement):
         return self.doc if self.doc else None
 
     def setAttribute(self, name, value):
-        # ActiveX registration
-        if name == 'classid':
-            from ActiveX.ActiveX import register_object
-
-            try:
-                register_object(self, value)
-            except:
-                return
-
         self.tag[name] = value
 
     @property
